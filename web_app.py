@@ -188,7 +188,7 @@ def _save_to_sheets(result, timestamp: str) -> str:
         return f"⚠️ Ошибка при записи в Google Sheets: {e}"
 
 
-def _build_excel(result) -> bytes:
+def _build_excel(result, non_patient_display: float = 0.0) -> bytes:
     """Создать Excel-файл с полным отчётом TDABC."""
     import openpyxl
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -265,6 +265,8 @@ def _build_excel(result) -> bytes:
         ("Непациентское время, мин/смену", cap.non_patient_min_per_day),
         ("Доступно пациентских мин/смену", cap.patient_min_per_day),
         ("Итого доступных мин/мес.", cap.total_patient_min),
+        ("Непациентское время в месяц, мин", round(non_patient_display, 0)),
+        ("Непациентское время в месяц, ч", round(non_patient_display / 60, 1)),
     ]:
         data_row(row, label, val)
         row += 1
@@ -348,13 +350,12 @@ def _calculate_from_form(
     # Расчёт непациентского времени
     days_per_month = days_per_week * WEEKS_PER_MONTH
     if schedule_mode == "auto":
-        # Мощность = все рабочие часы месяца; non_patient = 0, hours_per_day пересчитывается
         total_working_min = total_hours_month * 60
         total_patient_min = sum(p.minutes * p.monthly_volume for p in procedures)
         non_patient_min_total = total_working_min - total_patient_min
-        # Переопределяем hours_per_day так, чтобы capacity = total_hours_month * 60
         hours_per_day = total_hours_month / days_per_month
         non_patient_min_per_day = 0.0
+        non_patient_display = non_patient_min_total  # для отчёта
         if non_patient_min_total < 0:
             schedule_note = (
                 f"⚠️ Суммарное время процедур ({total_patient_min:.0f} мин) "
@@ -370,6 +371,7 @@ def _calculate_from_form(
             )
     else:
         non_patient_min_per_day = non_patient_min_manual
+        non_patient_display = non_patient_min_manual * days_per_month
         schedule_note = f"Непациентское время задано вручную: {non_patient_min_manual:.0f} мин/смену"
 
     insurance = InsuranceRates(mode="standard", rate_standard=insurance_rate / 100)
@@ -430,6 +432,8 @@ def _calculate_from_form(
         f"| Рабочих дней/мес. | {cap.days_per_month:.1f} |",
         f"| Доступных пациентских мин/смену | {cap.patient_min_per_day:.1f} |",
         f"| Итого доступных мин/мес. | {cap.total_patient_min:.0f} |",
+        f"| Непациентское время в месяц, мин | {non_patient_display:.0f} |",
+        f"| Непациентское время в месяц, ч | {non_patient_display/60:.1f} |",
         "",
         "---",
         "### 🎯 CCR — стоимость 1 минуты работы",
@@ -462,7 +466,7 @@ def _calculate_from_form(
     md_lines += ["", "---", sheets_status]
 
     # Excel-файл
-    excel_bytes = _build_excel(result)
+    excel_bytes = _build_excel(result, non_patient_display=non_patient_display)
     fname = f"TDABC_{result.name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
     tmp.write(excel_bytes)
