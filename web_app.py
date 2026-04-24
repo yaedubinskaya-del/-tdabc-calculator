@@ -346,24 +346,28 @@ def _calculate_from_form(
         return f"❌ Ошибка в процедурах: {err}", None
 
     # Расчёт непациентского времени
+    days_per_month = days_per_week * WEEKS_PER_MONTH
     if schedule_mode == "auto":
-        total_patient_min = sum(p.minutes * p.monthly_volume for p in procedures)
-        days_per_month = days_per_week * WEEKS_PER_MONTH
+        # Мощность = все рабочие часы месяца; non_patient = 0, hours_per_day пересчитывается
         total_working_min = total_hours_month * 60
+        total_patient_min = sum(p.minutes * p.monthly_volume for p in procedures)
         non_patient_min_total = total_working_min - total_patient_min
+        # Переопределяем hours_per_day так, чтобы capacity = total_hours_month * 60
+        hours_per_day = total_hours_month / days_per_month
+        non_patient_min_per_day = 0.0
         if non_patient_min_total < 0:
-            return (
-                f"❌ Суммарное время процедур ({total_patient_min:.0f} мин) "
-                f"превышает рабочие часы ({total_working_min:.0f} мин). "
-                "Уменьшите объёмы процедур или увеличьте рабочие часы.",
-                None,
+            schedule_note = (
+                f"⚠️ Суммарное время процедур ({total_patient_min:.0f} мин) "
+                f"превышает рабочие часы ({total_working_min:.0f} мин) — "
+                "проверьте объёмы процедур."
             )
-        non_patient_min_per_day = non_patient_min_total / days_per_month
-        schedule_note = (
-            f"Авторасчёт: {total_hours_month:.0f} ч/мес × 60 − {total_patient_min:.0f} мин процедур "
-            f"= {non_patient_min_total:.0f} мин непациентского времени "
-            f"({non_patient_min_per_day:.1f} мин/смену)"
-        )
+        else:
+            schedule_note = (
+                f"Авторасчёт: {total_hours_month:.0f} ч/мес ({total_working_min:.0f} мин) | "
+                f"Процедуры: {total_patient_min:.0f} мин | "
+                f"Непациентское время: {non_patient_min_total:.0f} мин "
+                f"({non_patient_min_total/days_per_month:.1f} мин/смену)"
+            )
     else:
         non_patient_min_per_day = non_patient_min_manual
         schedule_note = f"Непациентское время задано вручную: {non_patient_min_manual:.0f} мин/смену"
